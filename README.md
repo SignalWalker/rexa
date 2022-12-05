@@ -30,9 +30,3 @@ Not yet fit for actual use; wait until [1.0.0](https://github.com/SignalWalker/r
 - "Exa" as in:
   - "[exo](https://en.wiktionary.org/wiki/exo-)", a prefix meaning "outer" or "external"
   - "[Exapunks](https://www.zachtronics.com/exapunks/)", a puzzle game about distributed programming
-
-## References
-
-\[1\] Christine Lemmer-Webber and Randy Farmer. 2022. The Heart of Spritely: Distributed Objects and Capability Security. Spritely Networked Communities Institute. Retrieved December 5, 2022 from https://spritely.institute/static/papers/spritely-core.html
-
-\[2\] Christine Lemmer-Webber, Randy Farmer, and Jessica Tallon. 2022. Spritely for Secure Applications and Communities. Spritely Networked Communities Institute. Retrieved December 5, 2022 from https://spritely.institute/static/papers/spritely-for-users.html
