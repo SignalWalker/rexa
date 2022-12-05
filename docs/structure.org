@@ -1,0 +1,26 @@
+#+title: Library Structure
+#+author: Ash Walker
+
+#+bibliography: ./references.bib
+
+** Concepts
+
+- Capability: A stateless function exposed over the object capability network. If an actor has a reference to a capability, the actor can call the capability.
+- Vat: A container for objects and an event loop that communicates with other event loops [cite:@lemmer-webberGoblins]. Objects in the same vat are "near" and objects in remote vats are "far".
+- Actormap: The object container within a vat.
+
+** Object Capability Network (OCapN)
+
+A set of layered abstractions for asynchronous programming [cite:@lemmer-webberHeartSpritelyDistributed2022].
+
+*** Layers
+
+- Sturdyrefs/Certificates: Provide entrance to the network for new actors, either through a special URI or through a certificate.
+- Netlayers: Abstract interface for establishing secure connections between two parties. Agnostic of transport protocol. Abstracts temporality -- as in, a range of synchronicity from live socketed connections to intermittently offline store-and-forward systems.
+- Capability Transport Protocol (CapTP): Distributed, secure, networked object programming abstraction, which makes no distinction between local and remote objects.
+
+** Library Structure
+
+
+
+#+print-bibliography: :title "References"
