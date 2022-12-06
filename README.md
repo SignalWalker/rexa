@@ -17,6 +17,11 @@ Not yet fit for actual use; wait until [1.0.0](https://github.com/SignalWalker/r
 - It is difficult to build such services, because one must reinvent many wheels to ensure security & privacy for their users
 - I like Rust more than [Guile](https://gitlab.com/spritely/guile-goblins) & [Racket](https://gitlab.com/spritely/goblins)
 
+## Goals
+
+- Feature-parity & interoperation with [Goblins](https://gitlab.com/spritely/guile-goblins)
+- Compliance with the final version of [OCapN](https://github.com/ocapn/ocapn), once that specification exists
+
 ## Usage
 
 - [Examples](./samples)
