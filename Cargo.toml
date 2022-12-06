@@ -12,4 +12,6 @@ categories = [ "asynchronous", "authentication", "concurrency", "cryptography", 
 keywords = [ "ocap", "ocapn", "object-capabilities", "goblins" ] # 'goblins' because this is based on Spritely Goblins (a guile library implementing OCapN)
 
 [dependencies]
+thiserror = "^1.0"
+tracing = "^0.1"
 

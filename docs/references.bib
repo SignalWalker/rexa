@@ -58,3 +58,41 @@
   langid = {english},
   pagetotal = {229}
 }
+
+@online{morningstarWhatAreCapabilities2017,
+  title = {What {{Are Capabilities}}?},
+  author = {Morningstar, Chip},
+  date = {2017-05-07},
+  url = {http://habitatchronicles.com/2017/05/what-are-capabilities/},
+  urldate = {2022-12-05},
+  organization = {{Habitat Chronicles}}
+}
+
+@thesis{radulPropagationNetworksFlexible2009,
+  title = {Propagation {{Networks}}: {{A Flexible}} and {{Expressive Substrate}} for {{Computation}}},
+  shorttitle = {Propagation {{Networks}}},
+  author = {Radul, Alexey},
+  date = {2009-11-03},
+  url = {https://dspace.mit.edu/handle/1721.1/49525},
+  urldate = {2022-12-05},
+  abstract = {I propose a shift in the foundations of computation. Practically all ideas of general-purpose computation today are founded either on execution of sequences of atomic instructions, i.e., assembly languages, or on evaluation of tree-structured expressions, i.e., most higher level programming languages. Both have served us well in the past, but it is increasingly clear that we need something more. I suggest that we can build general-purpose computation on propagation of information through networks of stateful cells interconnected with stateless autonomous asynchronous computing elements. Various forms of this general idea have been used with great success for various special purposes; perhaps the most immediate example is constraint propagation in constraint satisfaction systems. These special-purpose systems, however, are all complex and all different, and neither compose well, nor interoperate well, nor generalize well. A foundational layer is missing. The key insight in this work is that a cell should not be seen as storing a value, but as accumulating information about a value. The cells should never forget information -- such monotonicity prevents race conditions in the behavior of the network. Monotonicity of information need not be a severe restriction: for example, carrying reasons for believing each thing makes it possible to explore but thenpossibly reject tentative hypotheses, thus appearing to undo something, while maintaining monotonicity. Accumulating information is a broad enough design principle to encompass arbitrary computation. The object of this dissertation is therefore to architect a general-purpose computing system based on propagation networks; to subsume expression evaluation under propagation just as instruction execution is subsumed under expression evaluation; to demonstrate that a general-purpose propagation system can recover all the benefits that have been derived from special-purpose propagation systems, allow them to compose andinteroperate, and offer further expressive power beyond what we have known in the past; and finally to contemplate the lessons that such a fundamental shift can teach us about the deep nature of computation.},
+  langid = {english},
+  pagetotal = {176},
+  annotation = {Accepted: 2009-11-03T20:30:05Z}
+}
+
+@online{radulRevisedReportPropagator,
+  title = {Revised {{Report}} on the {{Propagator Model}}},
+  author = {Radul, Alexey and Sussman, Gerald Jay},
+  url = {https://groups.csail.mit.edu/mac/users/gjs/propagators/revised-html.html},
+  urldate = {2022-12-05},
+  abstract = {In the past year we have made serious progress on elaborating the propagator programming model [2,3]. Things have gotten serious enough to build a system that can be used for real experiments. The most important problem facing a programmer is the revision of an existing program to extend it for some new situation. Unfortunately, the traditional models of programming provide little support for this activity. The programmer often finds that commitments made in the existing code impede the extension, but the costs of reversing those commitments are excessive. Such commitments tend to take the form of choices of strategy. In the design of any significant system there are many implementation plans proposed for every component at every level of detail. However, in the system that is finally delivered this diversity of plans is lost and usually only one unified plan is adopted and implemented. As in an ecological system, the loss of diversity in the traditional engineering process has serious consequences. The Propagator Programming Model is an attempt to mitigate this problem. It is a model that supports the expression and integration of multiple viewpoints on a design. It incorporates explicit structure to support the integration of redundant pieces and subsystems that solve problems in several different ways. It will help us integrate the diversity that was inherent in the design process into the delivered operational product. The Propagator Programming Model is built on the idea that the basic computational elements are autonomous machines interconnected by shared cells through which they communicate. Each machine continuously examines the cells it is interested in, and adds information to some based on computations it can make from information from the others. Cells accumulate information from the propagators that produce that information. The key idea here is additivity. New ways to make contributions can be added just by adding new propagators; if an approach to a problem doesn't turn out to work well, it can be identified by its premises and ignored, dynamically and without disruption. This work was supported in part by the MIT Mind Machine Project.}
+}
+
+@software{tallonGoblinChat,
+  title = {Goblin {{Chat}}},
+  author = {Tallon, Jessica},
+  url = {https://gitlab.com/spritely/goblin-chat},
+  urldate = {2022-12-05},
+  abstract = {Demo chat application (emphasis on demo) using Goblins.}
+}

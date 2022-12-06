@@ -15,6 +15,7 @@ Not yet fit for actual use; wait until [1.0.0](https://github.com/SignalWalker/r
 
 - Decentralized services give more power to users, and tend to be longer-lived than their centralized counterparts (ex. IRC vs. AIM, Skype, etc.)
 - It is difficult to build such services, because one must reinvent many wheels to ensure security & privacy for their users
+- I like Rust more than [Guile](https://gitlab.com/spritely/guile-goblins) & [Racket](https://gitlab.com/spritely/goblins)
 
 ## Usage
 
