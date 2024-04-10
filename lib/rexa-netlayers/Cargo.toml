@@ -1,7 +1,7 @@
 [package]
 name = "rexa-netlayers"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
@@ -9,8 +9,8 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rexa = { path = "../.." }
-syrup = { path = "../syrup", optional = true }
+rexa = { path = "../..", version = "^0.1" }
+syrup = { workspace = true, optional = true }
 
 thiserror = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
@@ -22,13 +22,13 @@ tokio = { version = "^1.36", optional = true, features = ["parking_lot"] }
 # mock
 lazy_static = { version = "^1.4", optional = true }
 # onion
-arti-client = { version = "^0.14", git = "https://gitlab.torproject.org/tpo/core/arti", features = [
+arti-client = { version = "^0.17", features = [
   "onion-service-client",
   "onion-service-service",
 ], optional = true }
-tor-rtcompat = { version = "^0.10", git = "https://gitlab.torproject.org/tpo/core/arti", optional = true }
-tor-hsservice = { version = "^0.8", git = "https://gitlab.torproject.org/tpo/core/arti", optional = true }
-tor-cell = { version = "^0.16", git = "https://gitlab.torproject.org/tpo/core/arti", optional = true }
+tor-rtcompat = { version = "^0.17", optional = true }
+tor-hsservice = { version = "^0.17", optional = true }
+tor-cell = { version = "^0.17", optional = true }
 
 #datastream-tcp
 ## mio

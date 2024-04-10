@@ -2,15 +2,16 @@
 members = ["lib/*"]
 
 [workspace.package]
+edition = "2021"
 authors = ["Ash Walker <ash@ashwalker.net>"]
-repository = "https://github.com/SignalWalker/rexa"
+repository = "https://git.ashwalker.net/Ash/rexa"
 license = "LGPL-3.0-or-later"
 publish = ["signal"]
 
 [package]
 name = "rexa"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 authors.workspace = true
 publish.workspace = true
 
@@ -35,6 +36,7 @@ thiserror = "^1.0"
 tracing = "^0.1"
 futures = "^0.3"
 parking_lot = "^0.12"
+syrup = { path = "/home/ash/projects/lib/syrup", features = ["extra-ed25519"] }
 
 [dependencies]
 rexa-proc = { path = "lib/rexa-proc", version = "^0.1", registry = "signal" }
@@ -58,13 +60,9 @@ rand = { version = "^0.8", features = [] }
 ed25519-dalek = { version = "^2", features = ["rand_core"] }
 
 # locators
-fluent-uri = "^0.2.0-alpha.0"
+fluent-uri = "^0.2.0-alpha.4"
 
-# syrup
-syrup = { path = "lib/syrup", version = "^0.1", registry = "signal" }
-
-# netlayers
-# netlayer-mock
+syrup.workspace = true
 
 [dev-dependencies]
 lazy_static = { version = "^1.4" }

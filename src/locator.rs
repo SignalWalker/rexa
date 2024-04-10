@@ -60,7 +60,7 @@ impl std::hash::Hash for NodeLocator {
 #[derive(Debug, thiserror::Error)]
 pub enum ParseUriError {
     #[error(transparent)]
-    Uri(#[from] fluent_uri::ParseError),
+    Uri(#[from] fluent_uri::error::ParseError),
     #[error(transparent)]
     Port(#[from] ParseIntError),
     #[error(transparent)]
@@ -286,8 +286,8 @@ pub enum ParseSturdyRefUriError {
     InvalidPath,
 }
 
-impl From<fluent_uri::ParseError> for ParseSturdyRefUriError {
-    fn from(value: fluent_uri::ParseError) -> Self {
+impl From<fluent_uri::error::ParseError> for ParseSturdyRefUriError {
+    fn from(value: fluent_uri::error::ParseError) -> Self {
         Self::Locator(ParseUriError::Uri(value))
     }
 }
