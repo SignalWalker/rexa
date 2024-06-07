@@ -36,7 +36,8 @@ thiserror = "^1.0"
 tracing = "^0.1"
 futures = "^0.3"
 parking_lot = "^0.12"
-syrup = { path = "/home/ash/projects/lib/syrup", features = ["extra-ed25519"] }
+syrup = { path = "/home/ash/projects/lib/syrup", features = [] }
+syrup-ed25519 = { path = "/home/ash/projects/lib/syrup/lib/syrup-ed25519" }
 
 [dependencies]
 rexa-proc = { path = "lib/rexa-proc", version = "^0.1", registry = "signal" }
@@ -60,9 +61,10 @@ rand = { version = "^0.8", features = [] }
 ed25519-dalek = { version = "^2", features = ["rand_core"] }
 
 # locators
-fluent-uri = "^0.2.0-alpha.4"
+fluent-uri = "^0.2.0-alpha.5"
 
 syrup.workspace = true
+syrup-ed25519.workspace = true
 
 [dev-dependencies]
 lazy_static = { version = "^1.4" }
@@ -87,15 +89,15 @@ test-deps = ["tokio", "tokio/rt-multi-thread", "tokio/process", "tokio/macros"]
 
 [[test]]
 name = "ocapn_test_suite"
-required-features = ["netlayer-onion", "test-deps"]
+required-features = ["test-deps"]
 
 [[test]]
 name = "session"
-required-features = ["netlayer-mock", "test-deps"]
+required-features = ["test-deps"]
 
 [[test]]
 name = "deliver"
-required-features = ["netlayer-mock", "test-deps"]
+required-features = ["test-deps"]
 
 [lints]
 workspace = true

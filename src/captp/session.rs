@@ -1,10 +1,16 @@
+use std::sync::Arc;
+
+use ed25519_dalek::{SigningKey, VerifyingKey};
+use syrup::Encode;
+
 use super::{
     msg::{DescExport, OpAbort},
     object::{RemoteBootstrap, RemoteObject},
 };
-use crate::async_compat::{AsyncRead, AsyncWrite};
-use ed25519_dalek::{SigningKey, VerifyingKey};
-use std::sync::Arc;
+use crate::{
+    async_compat::{AsyncRead, AsyncWrite},
+    captp::{msg::DescImportObject, CapTpReadExt},
+};
 
 mod builder;
 pub use builder::*;
@@ -84,7 +90,7 @@ impl<Reader, Writer> From<&'_ Arc<CapTpSessionInternal<Reader, Writer>>>
 impl<Reader, Writer> CapTpSession<Reader, Writer> {
     pub fn as_dyn(&self) -> Arc<dyn AbstractCapTpSession + Send + Sync + 'static>
     where
-        Reader: AsyncRead + Send + Unpin + 'static,
+        Reader: CapTpReadExt + Send + 'static,
         Writer: AsyncWrite + Send + Unpin + 'static,
     {
         self.base.clone()
@@ -98,19 +104,19 @@ impl<Reader, Writer> CapTpSession<Reader, Writer> {
         &self.base.remote_vkey
     }
 
-    pub fn export(&self, obj: impl IntoExport) -> DescExport {
-        self.base.exports.export(obj)
+    pub fn export_object(&self, obj: impl IntoExport) -> DescImportObject {
+        self.base.exports.export_object(obj)
     }
 
     pub fn is_aborted(&self) -> bool {
         self.base.is_aborted()
     }
 
-    pub async fn abort(&self, reason: impl Into<OpAbort>) -> Result<(), SendError>
+    pub async fn abort<'reason>(&self, reason: impl Into<OpAbort<'reason>>) -> Result<(), SendError>
     where
         Writer: AsyncWrite + Unpin,
     {
-        let res = self.base.send_msg(&reason.into()).await;
+        let res = self.base.send_msg(&reason.into().to_tokens()).await;
         self.base.local_abort();
         res
     }
@@ -133,7 +139,7 @@ impl<Reader, Writer> CapTpSession<Reader, Writer> {
 
     pub fn event_stream(&self) -> impl futures::stream::Stream<Item = Result<Event, RecvError>> + '_
     where
-        Reader: AsyncRead + Send + Unpin + 'static,
+        Reader: CapTpReadExt + Send + 'static,
         Writer: AsyncWrite + Send + Unpin + 'static,
     {
         futures::stream::unfold(self, |session| async move {
@@ -145,7 +151,7 @@ impl<Reader, Writer> CapTpSession<Reader, Writer> {
         self,
     ) -> impl futures::stream::Stream<Item = Result<Event, RecvError>> + Unpin
     where
-        Reader: AsyncRead + Unpin + Send + 'static,
+        Reader: CapTpReadExt + Send + 'static,
         Writer: AsyncWrite + Unpin + Send + 'static,
     {
         use futures::StreamExt;
@@ -153,7 +159,7 @@ impl<Reader, Writer> CapTpSession<Reader, Writer> {
             session: CapTpSession<Reader, Writer>,
         ) -> Option<(Result<Event, RecvError>, CapTpSession<Reader, Writer>)>
         where
-            Reader: AsyncRead + Send + Unpin + 'static,
+            Reader: CapTpReadExt + Send + 'static,
             Writer: AsyncWrite + Send + Unpin + 'static,
         {
             Some((session.recv_event().await, session))
@@ -164,7 +170,7 @@ impl<Reader, Writer> CapTpSession<Reader, Writer> {
     // #[tracing::instrument()]
     pub async fn recv_event(&self) -> Result<Event, RecvError>
     where
-        Reader: AsyncRead + Send + Unpin + 'static,
+        Reader: CapTpReadExt + Send + 'static,
         Writer: AsyncWrite + Send + Unpin + 'static,
     {
         self.base.clone().recv_event().await

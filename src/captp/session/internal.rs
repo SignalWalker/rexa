@@ -1,10 +1,10 @@
-use super::{CapTpSessionCore, KeyMap, RecvError, SendError};
+use super::{KeyMap, RecvError, SendError};
 use crate::{
-    async_compat::{AsyncRead, AsyncWrite},
+    async_compat::{AsyncRead, AsyncWrite, AsyncWriteExt},
     captp::{
-        msg::{DescExport, Operation},
+        msg::{DescExport, DescImport, DescImportObject, DescImportPromise, Operation},
         object::Object,
-        IntoExport, RemoteKey,
+        CapTpReadExt, IntoExport, RemoteKey,
     },
     locator::NodeLocator,
 };
@@ -12,7 +12,10 @@ use dashmap::{DashMap, DashSet};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use futures::lock::Mutex;
 use std::sync::{atomic::AtomicBool, Arc, RwLock};
-use syrup::{Deserialize, Serialize};
+use syrup::{
+    de::{Literal, LiteralValue},
+    Decode, Encode, Sequence, TokenTree,
+};
 use tracing::Instrument;
 
 pub struct ExportManager {
@@ -33,26 +36,31 @@ impl ExportManager {
         }
     }
 
-    pub fn export(&self, obj: impl IntoExport) -> DescExport {
+    pub fn export_object(&self, obj: impl IntoExport) -> DescImportObject {
         let obj = obj.into_export();
         let reserve = self.exports.reserve();
         obj.exported(&self.remote_vkey, reserve.key().into());
-        reserve.finalize(obj).into()
+        DescImportObject {
+            position: reserve.finalize(obj),
+        }
+    }
+
+    pub fn export_answer(&self) -> DescImportPromise {
+        todo!()
     }
 }
 
 pub(crate) struct CapTpSessionInternal<Reader, Writer> {
-    core: CapTpSessionCore<Reader, Writer>,
+    reader: Mutex<Reader>,
+    writer: Mutex<Writer>,
     pub(super) signing_key: SigningKey,
 
     pub(super) remote_vkey: RemoteKey,
-    pub(super) remote_locator: NodeLocator,
+    pub(super) remote_locator: NodeLocator<'static>,
 
     /// Objects imported from the remote
     pub(super) imports: DashSet<u64>,
     pub(super) exports: ExportManager,
-
-    pub(super) recv_buf: Mutex<Vec<u8>>,
 
     pub(super) aborted_by_remote: RwLock<Option<String>>,
     pub(super) aborted_locally: AtomicBool,
@@ -77,13 +85,15 @@ impl<Reader, Writer> std::fmt::Debug for CapTpSessionInternal<Reader, Writer> {
 
 impl<Reader, Writer> CapTpSessionInternal<Reader, Writer> {
     pub(super) fn new(
-        core: CapTpSessionCore<Reader, Writer>,
+        reader: Mutex<Reader>,
+        writer: Mutex<Writer>,
         signing_key: SigningKey,
         remote_vkey: RemoteKey,
-        remote_locator: NodeLocator,
+        remote_locator: NodeLocator<'static>,
     ) -> Self {
         Self {
-            core,
+            reader,
+            writer,
             signing_key,
 
             remote_vkey,
@@ -91,96 +101,72 @@ impl<Reader, Writer> CapTpSessionInternal<Reader, Writer> {
 
             imports: DashSet::new(),
             exports: ExportManager::new(remote_vkey),
-            recv_buf: Mutex::new(Vec::new()),
             aborted_by_remote: RwLock::default(),
             aborted_locally: false.into(),
         }
     }
 
-    #[tracing::instrument(skip(msg))]
-    pub(super) async fn send_msg<Msg: Serialize>(&self, msg: &Msg) -> Result<(), SendError>
+    //#[tracing::instrument(skip(msg))]
+    pub(super) fn send_msg<'fut, 'msg: 'fut>(
+        &'fut self,
+        msg: &'fut TokenTree<'msg>,
+    ) -> impl std::future::Future<Output = Result<(), SendError>> + 'fut
     where
         Writer: AsyncWrite + Unpin,
+    {
+        async move {
+            if self
+                .aborted_locally
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return Err(SendError::SessionAbortedLocally);
+            }
+            if let Some(reason) = self.aborted_by_remote.read().unwrap().as_ref() {
+                return Err(SendError::SessionAborted(reason.clone()));
+            }
+            self.writer
+                .lock()
+                .await
+                .write_all(&msg.encode())
+                .await
+                .map_err(SendError::from)
+        }
+    }
+
+    //#[tracing::instrument]
+    //async fn pop_tokens(&self) -> Result<TokenTree<'static>, RecvError>
+    //where
+    //    Reader: CapTpReadExt,
+    //{
+    //    self.reader
+    //        .lock()
+    //        .await
+    //        .consume_syrup()
+    //        .await
+    //        .map_err(From::from)
+    //}
+
+    pub(super) async fn recv_msg<Msg>(&self) -> Result<Msg, RecvError>
+    where
+        Reader: CapTpReadExt + Send,
+        Msg: Decode<'static>,
     {
         if self
             .aborted_locally
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            return Err(SendError::SessionAbortedLocally);
+            return Err(RecvError::SessionAbortedLocally);
         }
         if let Some(reason) = self.aborted_by_remote.read().unwrap().as_ref() {
-            return Err(SendError::SessionAborted(reason.clone()));
+            return Err(RecvError::SessionAborted(reason.clone()));
         }
-        tracing::trace!(msg = %syrup::ser::to_pretty(msg).unwrap(), "sending message");
-        self.core.send_msg(msg).await.map_err(SendError::from)
-    }
-
-    #[tracing::instrument()]
-    async fn recv(&self, max_size: usize) -> Result<usize, std::io::Error>
-    where
-        Reader: AsyncRead + Unpin,
-    {
-        let mut recv_vec = self.recv_buf.lock().await;
-        let orig_len = recv_vec.len();
-        let new_len = orig_len + max_size;
-        recv_vec.resize(new_len, 0);
-        let amt = {
-            let recv_buf = &mut recv_vec[orig_len..new_len];
-            self.core.recv(recv_buf).await?
-        };
-        // drop unwritten bytes from the end of the vec
-        recv_vec.truncate(orig_len + amt);
-
-        Ok(amt)
-    }
-
-    #[tracing::instrument]
-    async fn pop_msg<Msg>(&self) -> Result<Msg, RecvError>
-    where
-        for<'de> Msg: Deserialize<'de>,
-    {
-        let mut buf = self.recv_buf.lock().await;
-
-        let (rem, res) = syrup::de::nom_bytes::<Msg>(&buf)?;
-
-        let amt_consumed = buf.len() - rem.len();
-        tracing::trace!(bytes = amt_consumed, "popped message");
-        buf.drain(..amt_consumed);
-
-        Ok(res)
-    }
-
-    pub(super) async fn recv_msg<Msg>(&self) -> Result<Msg, RecvError>
-    where
-        Reader: AsyncRead + Unpin,
-        for<'de> Msg: Deserialize<'de>,
-    {
-        loop {
-            if self
-                .aborted_locally
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                return Err(RecvError::SessionAbortedLocally);
-            }
-            if let Some(reason) = self.aborted_by_remote.read().unwrap().as_ref() {
-                return Err(RecvError::SessionAborted(reason.clone()));
-            }
-            match self.pop_msg::<Msg>().await {
-                Ok(m) => {
-                    return Ok(m);
-                }
-                Err(e) => match e {
-                    RecvError::Parse(syrup::ErrorKind::Incomplete(n)) => {
-                        self.recv(match n {
-                            syrup::de::Needed::Unknown => 1024,
-                            syrup::de::Needed::Size(a) => a.into(),
-                        })
-                        .await?;
-                    }
-                    _ => return Err(e),
-                },
-            }
-        }
+        self.reader
+            .lock()
+            .await
+            .consume_syrup()
+            .await?
+            .decode::<Msg>()
+            .map_err(From::from)
     }
 
     // pub(super) fn export(&self, val: Arc<dyn crate::captp::object::Object + Send + Sync>) -> u64 {
@@ -204,23 +190,27 @@ impl<Reader, Writer> CapTpSessionInternal<Reader, Writer> {
     // TODO :: propagate delivery errors
     pub(super) async fn recv_event(self: Arc<Self>) -> Result<super::Event, RecvError>
     where
-        Reader: AsyncRead + Send + Unpin + 'static,
+        Reader: CapTpReadExt + Send + 'static,
         Writer: AsyncWrite + Send + Unpin + 'static,
     {
-        fn bootstrap_deliver_only(args: Vec<syrup::Item>) -> super::Event {
-            use syrup::Item;
-            let mut args = args.into_iter();
-            match args.next() {
-                Some(Item::Symbol(ident)) => match ident.as_str() {
-                    "deposit-gift" => todo!("bootstrap: deposit-gift"),
-                    id => todo!("unrecognized bootstrap function: {id}"),
+        fn bootstrap_deliver_only<'args>(mut args: Sequence<'args>) -> super::Event {
+            match args.stream.pop() {
+                Some(TokenTree::Literal(Literal {
+                    repr: LiteralValue::Symbol(ident),
+                    ..
+                })) => match &*ident {
+                    b"deposit-gift" => todo!("bootstrap: deposit-gift"),
+                    id => todo!(
+                        "unrecognized bootstrap function: {}",
+                        String::from_utf8_lossy(id)
+                    ),
                 },
                 _ => todo!(),
             }
         }
-        fn bootstrap_deliver<Reader, Writer>(
+        fn bootstrap_deliver<'args, Reader, Writer>(
             session: Arc<CapTpSessionInternal<Reader, Writer>>,
-            args: Vec<syrup::Item>,
+            mut args: Sequence<'args>,
             answer_pos: Option<u64>,
             resolve_me_desc: crate::captp::msg::DescImport,
         ) -> super::Event
@@ -228,13 +218,17 @@ impl<Reader, Writer> CapTpSessionInternal<Reader, Writer> {
             Writer: AsyncWrite + Send + Unpin + 'static,
             Reader: Send + 'static,
         {
-            use syrup::Item;
-            let mut args = args.into_iter();
-            match args.next() {
-                Some(Item::Symbol(ident)) => match ident.as_str() {
-                    "fetch" => {
-                        let swiss = match args.next() {
-                            Some(Item::Bytes(swiss)) => swiss,
+            match args.stream.pop() {
+                Some(TokenTree::Literal(Literal {
+                    repr: LiteralValue::Symbol(ident),
+                    ..
+                })) => match &*ident {
+                    b"fetch" => {
+                        let swiss = match args.stream.pop() {
+                            Some(TokenTree::Literal(Literal {
+                                repr: LiteralValue::Symbol(swiss),
+                                ..
+                            })) => swiss,
                             Some(s) => todo!("malformed swiss num: {s:?}"),
                             None => todo!("missing swiss num"),
                         };
@@ -245,11 +239,14 @@ impl<Reader, Writer> CapTpSessionInternal<Reader, Writer> {
                                 resolve_me_desc,
                             )
                             .into(),
-                            swiss,
+                            swiss: swiss.into_owned(),
                         })
                     }
-                    "withdraw-gift" => todo!("bootstrap: withdraw-gift"),
-                    id => todo!("unrecognized bootstrap function: {id}"),
+                    b"withdraw-gift" => todo!("bootstrap: withdraw-gift"),
+                    id => todo!(
+                        "unrecognized bootstrap function: {}",
+                        String::from_utf8_lossy(id)
+                    ),
                 },
                 _ => todo!(),
             }
@@ -257,7 +254,7 @@ impl<Reader, Writer> CapTpSessionInternal<Reader, Writer> {
         loop {
             tracing::trace!("awaiting message");
             let msg = self
-                .recv_msg::<crate::captp::msg::Operation<syrup::Item>>()
+                .recv_msg::<crate::captp::msg::Operation<'static>>()
                 .await?;
             tracing::debug!(?msg, "received message");
             match msg {
@@ -324,8 +321,8 @@ impl<Reader, Writer> CapTpSessionInternal<Reader, Writer> {
                     }
                 },
                 Operation::Abort(crate::captp::msg::OpAbort { reason }) => {
-                    self.set_remote_abort(reason.clone());
-                    break Ok(super::Event::Abort(reason));
+                    self.set_remote_abort(reason.clone().into_owned());
+                    break Ok(super::Event::Abort(reason.into_owned()));
                 }
             }
         }

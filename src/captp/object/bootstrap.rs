@@ -1,19 +1,19 @@
-use std::future::Future;
 use std::sync::Arc;
+use std::{borrow::Cow, future::Future};
 
-use super::{DeliverError, DeliverOnlyError, RemoteObject};
-use crate::captp::msg::DescExport;
+use syrup::{call_sequence, sequence, Decode};
+
+use super::{DeliverError, RemoteObject};
 use crate::captp::msg::{DescHandoffReceive, DescImport};
 use crate::captp::CapTpDeliver;
+use crate::captp::{msg::DescExport, SendError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FetchError {
     #[error(transparent)]
-    Deliver(#[from] DeliverError),
-    #[error("fetch returned nothing")]
-    MissingResult,
-    #[error("otherwise successful fetch returned something other than an export position: {0:?}")]
-    UnexpectedArgument(syrup::Item),
+    Deliver(#[from] DeliverError<'static>),
+    #[error(transparent)]
+    Syrup(#[from] syrup::de::DecodeError<'static>),
 }
 
 pub trait Fetch: Sized {
@@ -42,17 +42,17 @@ impl RemoteBootstrap {
         tracing::trace!("fetching object");
         let mut args = self
             .base
-            .call_and("fetch", &[syrup::Bytes(swiss_number)])
+            .deliver_and(call_sequence!["fetch", syrup::Bytes(swiss_number.into())])
             .await?;
         let session = self.base.session.clone();
-        match args.pop() {
-            Some(i) => Ok(RemoteObject {
-                position: <DescExport as syrup::FromSyrupItem>::from_syrup_item(&i)
-                    .map_err(|_| FetchError::UnexpectedArgument(i))?,
-                session,
-            }),
-            None => Err(FetchError::MissingResult),
-        }
+
+        Ok(RemoteObject {
+            position: args
+                .stream
+                .require(Cow::Borrowed("desc:export"))
+                .and_then(DescExport::decode)?,
+            session,
+        })
     }
 
     #[tracing::instrument(skip(self), fields(swiss_number = crate::hash(&swiss_number)))]
@@ -61,12 +61,11 @@ impl RemoteBootstrap {
         swiss_number: &[u8],
         answer_pos: Option<u64>,
         resolve_me_desc: DescImport,
-    ) -> Result<(), DeliverError> {
+    ) -> Result<(), DeliverError<'static>> {
         tracing::trace!("fetching object");
         self.base
-            .call(
-                "fetch",
-                &[syrup::Bytes(swiss_number)],
+            .deliver(
+                call_sequence!["fetch", syrup::Bytes(swiss_number.into())],
                 answer_pos,
                 resolve_me_desc,
             )
@@ -81,26 +80,21 @@ impl RemoteBootstrap {
         Obj::fetch(self, swiss)
     }
 
-    pub async fn deposit_gift(
-        &self,
-        gift_id: u64,
-        desc: DescImport,
-    ) -> Result<(), DeliverOnlyError> {
+    pub async fn deposit_gift(&self, gift_id: u64, desc: DescImport) -> Result<(), SendError> {
         self.base
-            .call_only("deposit_gift", &syrup::raw_syrup![&gift_id, &desc])
+            .deliver_only(call_sequence!["deposit_gift", gift_id, desc])
             .await
     }
 
-    pub async fn withdraw_gift(
+    pub async fn withdraw_gift<'i>(
         self: Arc<Self>,
-        handoff_receive: DescHandoffReceive,
+        handoff_receive: DescHandoffReceive<'i>,
         answer_pos: Option<u64>,
         resolve_me_desc: DescImport,
-    ) -> Result<(), DeliverError> {
+    ) -> Result<(), SendError> {
         self.base
-            .call(
-                "withdraw_gift",
-                &[handoff_receive],
+            .deliver(
+                call_sequence!["withdraw_gift", handoff_receive],
                 answer_pos,
                 resolve_me_desc,
             )

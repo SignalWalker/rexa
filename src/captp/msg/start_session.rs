@@ -1,16 +1,19 @@
+use std::borrow::Cow;
+
 use crate::{locator::NodeLocator, CAPTP_VERSION};
 use ed25519_dalek::{SignatureError, VerifyingKey};
-use syrup::{Deserialize, Serialize};
+use syrup::{Decode, Encode};
 
-#[derive(Clone, Serialize, Deserialize)]
-#[syrup(name = "public-key")]
+#[derive(Clone, Encode, Decode)]
+#[syrup(label = "public-key")]
 pub struct PublicKey {
+    #[syrup(with = syrup_ed25519::verifying_key)]
     pub ecc: VerifyingKey,
 }
 
 impl std::fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&syrup::ser::to_pretty(self).unwrap())
+        self.to_tokens().fmt(f)
     }
 }
 
@@ -20,15 +23,16 @@ impl From<VerifyingKey> for PublicKey {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[syrup(name = "sig-val")]
+#[derive(Clone, Encode, Decode)]
+#[syrup(label = "sig-val")]
 pub struct Signature {
+    #[syrup(with = syrup_ed25519::signature)]
     pub eddsa: ed25519_dalek::Signature,
 }
 
 impl std::fmt::Debug for Signature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&syrup::ser::to_pretty(self).unwrap())
+        self.to_tokens().fmt(f)
     }
 }
 
@@ -38,32 +42,29 @@ impl From<ed25519_dalek::Signature> for Signature {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[syrup(name = "op:start-session")]
-pub struct OpStartSession {
-    pub captp_version: String,
+#[derive(Clone, Encode, Decode)]
+#[syrup(label = "op:start-session")]
+pub struct OpStartSession<'input> {
+    pub captp_version: Cow<'input, str>,
     pub session_pubkey: PublicKey,
-    pub acceptable_location: NodeLocator,
+    pub acceptable_location: NodeLocator<'input>,
     pub acceptable_location_sig: Signature,
 }
 
-impl std::fmt::Debug for OpStartSession
-where
-    Self: syrup::Serialize,
-{
+impl<'i> std::fmt::Debug for OpStartSession<'i> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&syrup::ser::to_pretty(self).unwrap())
+        self.to_tokens().fmt(f)
     }
 }
 
-impl OpStartSession {
+impl<'i> OpStartSession<'i> {
     pub fn new(
         session_pubkey: PublicKey,
-        acceptable_location: NodeLocator,
+        acceptable_location: NodeLocator<'i>,
         acceptable_location_sig: Signature,
     ) -> Self {
         Self {
-            captp_version: CAPTP_VERSION.to_owned(),
+            captp_version: CAPTP_VERSION.into(),
             session_pubkey,
             acceptable_location,
             acceptable_location_sig,
@@ -72,7 +73,7 @@ impl OpStartSession {
 
     pub fn verify_location(&self) -> Result<(), SignatureError> {
         self.session_pubkey.ecc.verify_strict(
-            &syrup::ser::to_bytes(&self.acceptable_location).unwrap(),
+            &(&self.acceptable_location).to_tokens().encode(),
             &self.acceptable_location_sig.eddsa,
         )
     }

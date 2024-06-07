@@ -1,15 +1,15 @@
 #[cfg(not(feature = "tokio"))]
-pub use futures::{
+pub(crate) use futures::{
     channel::{
         mpsc,
         oneshot::{self, Canceled as OneshotRecvError},
     },
     lock::Mutex,
-    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
+    AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
 };
 #[cfg(feature = "tokio")]
-pub use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+pub(crate) use tokio::{
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{
         mpsc,
         oneshot::{self, error::RecvError as OneshotRecvError},

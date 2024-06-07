@@ -1,14 +1,44 @@
+use std::future::Future;
+
+use ed25519_dalek::{SignatureError, Signer, SigningKey, VerifyingKey};
+use rand::rngs::OsRng;
+use syrup::{
+    de::{DecodeError, LexError, LexErrorKind},
+    Decode, Encode, TokenStream, TokenTree,
+};
+
 use super::CapTpSession;
 use crate::{
-    async_compat::{AsyncRead, AsyncWrite},
-    captp::{msg::OpStartSession, session::CapTpSessionCore, session::CapTpSessionManager},
+    async_compat::{AsyncRead, AsyncWrite, AsyncWriteExt},
+    captp::{
+        msg::OpStartSession, session::CapTpSessionManager, CapTpRead, CapTpReadExt, ReadSyrupError,
+    },
     locator::NodeLocator,
     CAPTP_VERSION,
 };
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
-use rand::rngs::OsRng;
-use std::future::Future;
-use syrup::{Deserialize, Serialize};
+
+#[derive(Debug, thiserror::Error)]
+pub enum SessionInitError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Lex(#[from] LexError),
+    #[error(transparent)]
+    Decode(#[from] DecodeError<'static>),
+    #[error("expected captp version {CAPTP_VERSION}, found {0}")]
+    Version(String),
+    #[error(transparent)]
+    Signature(#[from] SignatureError),
+}
+
+impl<'i> From<ReadSyrupError> for SessionInitError {
+    fn from(value: ReadSyrupError) -> Self {
+        match value {
+            ReadSyrupError::Io(io) => Self::Io(io),
+            ReadSyrupError::Lex(lex) => Self::Lex(lex),
+        }
+    }
+}
 
 pub struct CapTpSessionBuilder<'manager, Reader, Writer> {
     manager: &'manager mut CapTpSessionManager<Reader, Writer>,
@@ -38,70 +68,78 @@ impl<'m, Reader, Writer> CapTpSessionBuilder<'m, Reader, Writer> {
     //     self
     // }
 
-    pub fn and_accept(
-        self,
-        local_locator: NodeLocator,
-    ) -> impl Future<Output = Result<CapTpSession<Reader, Writer>, std::io::Error>> + 'm
+    pub fn and_accept<'locator>(
+        mut self,
+        local_locator: NodeLocator<'locator>,
+    ) -> impl Future<Output = Result<CapTpSession<Reader, Writer>, SessionInitError>> + 'm
     where
-        Reader: AsyncRead + Unpin,
+        Reader: CapTpReadExt + Send,
         Writer: AsyncWrite + Unpin,
     {
-        tracing::debug!(local = %local_locator.designator, "accepting OpStartSession");
-
-        let start_msg = self.generate_start_msg(local_locator);
-        let core = CapTpSessionCore::new(self.reader, self.writer);
+        let start_msg = self
+            .generate_start_msg(local_locator)
+            .to_tokens()
+            .encode()
+            .into_owned();
 
         async move {
-            let (remote_vkey, remote_loc) = Self::recv_start_session(&core).await?;
+            let (remote_vkey, remote_loc) = self.recv_start_session().await?;
 
-            core.send_msg(&start_msg).await?;
-            core.flush().await?;
+            self.writer.write_all(&start_msg).await?;
+            self.writer.flush().await?;
 
-            Ok(self
-                .manager
-                .finalize_session(core, self.signing_key, remote_vkey, remote_loc))
+            Ok(self.manager.finalize_session(
+                self.reader,
+                self.writer,
+                self.signing_key,
+                remote_vkey,
+                remote_loc,
+            ))
         }
     }
 
-    pub fn and_connect(
-        self,
-        local_locator: NodeLocator,
-    ) -> impl Future<Output = Result<CapTpSession<Reader, Writer>, std::io::Error>> + 'm
+    pub fn and_connect<'locator>(
+        mut self,
+        local_locator: NodeLocator<'locator>,
+    ) -> impl Future<Output = Result<CapTpSession<Reader, Writer>, SessionInitError>> + 'm
     where
-        Reader: AsyncRead + Unpin,
+        Reader: CapTpReadExt + Send,
         Writer: AsyncWrite + Unpin,
-        NodeLocator: Serialize,
-        OpStartSession: Serialize + 'm,
-        for<'de> NodeLocator: Deserialize<'de>,
-        for<'de> OpStartSession: Deserialize<'de>,
     {
-        let local_designator = local_locator.designator.clone();
+        let local_designator = local_locator.designator.clone().into_owned();
         tracing::debug!(local = %local_designator, "connecting with OpStartSession");
 
-        let start_msg = self.generate_start_msg(local_locator);
-        let core = CapTpSessionCore::new(self.reader, self.writer);
+        let start_msg = self
+            .generate_start_msg(local_locator)
+            .to_tokens()
+            .encode()
+            .into_owned();
 
         async move {
-            core.send_msg(&start_msg).await?;
-            core.flush().await?;
+            self.writer.write_all(&start_msg).await?;
+            self.writer.flush().await?;
 
             tracing::debug!(local = %local_designator, "sent OpStartSession, receiving response");
 
-            let (remote_vkey, remote_loc) = Self::recv_start_session(&core).await?;
+            let (remote_vkey, remote_loc) = self.recv_start_session().await?;
 
-            Ok(self
-                .manager
-                .finalize_session(core, self.signing_key, remote_vkey, remote_loc))
+            Ok(self.manager.finalize_session(
+                self.reader,
+                self.writer,
+                self.signing_key,
+                remote_vkey,
+                remote_loc,
+            ))
         }
     }
 
-    fn generate_start_msg(&self, local_locator: NodeLocator) -> OpStartSession
-    where
-        NodeLocator: Serialize,
-    {
+    fn generate_start_msg<'locator>(
+        &self,
+        local_locator: NodeLocator<'locator>,
+    ) -> OpStartSession<'locator> {
         let location_sig = self
             .signing_key
-            .sign(&syrup::ser::to_bytes(&local_locator).unwrap());
+            .sign(&(&local_locator).to_tokens().encode());
         OpStartSession::new(
             self.signing_key.verifying_key().into(),
             local_locator,
@@ -110,22 +148,27 @@ impl<'m, Reader, Writer> CapTpSessionBuilder<'m, Reader, Writer> {
     }
 
     pub(super) async fn recv_start_session(
-        core: &CapTpSessionCore<Reader, Writer>,
-    ) -> Result<(VerifyingKey, NodeLocator), std::io::Error>
+        &mut self,
+    ) -> Result<(VerifyingKey, NodeLocator<'static>), SessionInitError>
     where
-        Reader: AsyncRead + Unpin,
+        Reader: CapTpReadExt + Send,
     {
-        let mut resp_buf = [0u8; 1024];
-        let response = core.recv_msg::<OpStartSession>(&mut resp_buf).await?;
+        let response = self
+            .reader
+            .consume_syrup()
+            .await?
+            .decode::<OpStartSession<'static>>()?;
 
         if response.captp_version != CAPTP_VERSION {
-            todo!("handle mismatched captp versions")
+            return Err(SessionInitError::Version(
+                response.captp_version.into_owned(),
+            ));
         }
 
-        if response.verify_location().is_err() {
-            todo!()
-        }
+        response.verify_location()?;
 
-        Ok((response.session_pubkey.ecc, response.acceptable_location))
+        let res = (response.session_pubkey.ecc, response.acceptable_location);
+
+        Ok(res)
     }
 }

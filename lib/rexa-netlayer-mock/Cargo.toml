@@ -1,0 +1,22 @@
+[package]
+name = "rexa-netlayer-mock"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+
+[dependencies]
+rexa = { path = "../..", version = "^0.1", features = ["tokio"] }
+
+thiserror.workspace = true
+
+parking_lot.workspace = true
+tokio = { version = "^1.38", features = ["parking_lot"] }
+
+lazy_static = "^1.4"
+
+
+[lints]
+workspace = true

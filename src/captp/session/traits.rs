@@ -3,12 +3,15 @@ use std::sync::Arc;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use syrup::RawSyrup;
+use syrup::{de::Sequence, Encode};
 
 use super::{CapTpSessionInternal, Event, RecvError, RemoteKey, SendError};
-use crate::captp::msg::{DescExport, OpAbort, OpDeliverOnlySlice, OpDeliverSlice};
 use crate::captp::object::{DeliverError, RemoteBootstrap, RemoteObject, Resolver};
 use crate::captp::{msg::DescImport, ExportManager};
+use crate::captp::{
+    msg::{DescExport, OpAbort, OpDeliver, OpDeliverOnly},
+    CapTpReadExt,
+};
 use crate::{
     async_compat::{AsyncRead, AsyncWrite},
     captp::object::Object,
@@ -36,21 +39,17 @@ pub trait CapTpDeliver {
     fn exports(&self) -> &ExportManager;
     fn deliver_only<'f>(
         &'f self,
-        position: DescExport,
-        args: &'f [RawSyrup],
+        delivery: &'f OpDeliverOnly<'f>,
     ) -> futures::future::BoxFuture<'f, Result<(), SendError>>;
     fn deliver<'f>(
         &'f self,
-        position: DescExport,
-        args: &'f [RawSyrup],
-        answer_pos: Option<u64>,
-        resolve_me_desc: DescImport,
+        delivery: &'f OpDeliver<'f>,
     ) -> futures::future::BoxFuture<'f, Result<(), SendError>>;
     fn deliver_and<'f>(
         &'f self,
-        position: DescExport,
-        args: &'f [RawSyrup],
-    ) -> futures::future::BoxFuture<'f, Result<Vec<syrup::Item>, DeliverError>>;
+        to_desc: DescExport,
+        args: Sequence<'f>,
+    ) -> futures::future::BoxFuture<'f, Result<Sequence<'static>, DeliverError<'static>>>;
     fn into_remote_object(self: Arc<Self>, position: DescExport) -> Option<RemoteObject>;
     #[allow(unsafe_code)]
     unsafe fn into_remote_object_unchecked(self: Arc<Self>, position: DescExport) -> RemoteObject;
@@ -59,6 +58,9 @@ pub trait CapTpDeliver {
 }
 
 /// Allows dynamic dispatch for `CapTpSession`s.
+///
+/// IDEA :: instead of using a dynamic object here, split this functionality into a non-generic
+/// struct somehow?
 pub trait AbstractCapTpSession {
     fn signing_key(&self) -> &SigningKey;
     fn remote_vkey(&self) -> &VerifyingKey;
@@ -71,7 +73,7 @@ pub trait AbstractCapTpSession {
     fn is_aborted(&self) -> bool;
     fn abort<'result>(
         &'result self,
-        reason: &'result OpAbort,
+        reason: &'result OpAbort<'result>,
     ) -> BoxFuture<'result, Result<(), SendError>>;
     fn recv_event<'s>(self: Arc<Self>) -> BoxFuture<'s, Result<Event, RecvError>>;
     fn into_remote_bootstrap(self: Arc<Self>) -> RemoteBootstrap;
@@ -88,33 +90,27 @@ where
 
     fn deliver_only<'f>(
         &'f self,
-        position: DescExport,
-        args: &'f [syrup::RawSyrup],
+        delivery: &'f OpDeliverOnly<'f>,
     ) -> futures::future::BoxFuture<'f, Result<(), SendError>> {
-        let del = OpDeliverOnlySlice::new(position, args);
-        async move { self.send_msg(&del).await }.boxed()
+        async move { self.send_msg(&delivery.to_tokens()).await }.boxed()
     }
 
     fn deliver<'f>(
         &'f self,
-        position: DescExport,
-        args: &'f [syrup::RawSyrup],
-        answer_pos: Option<u64>,
-        resolve_me_desc: DescImport,
+        delivery: &'f OpDeliver<'f>,
     ) -> futures::future::BoxFuture<'f, Result<(), SendError>> {
-        let del = OpDeliverSlice::new(position, args, answer_pos, resolve_me_desc);
-        async move { self.send_msg(&del).await }.boxed()
+        async move { self.send_msg(&delivery.to_tokens()).await }.boxed()
     }
 
     fn deliver_and<'f>(
         &'f self,
-        position: DescExport,
-        args: &'f [syrup::RawSyrup],
-    ) -> futures::future::BoxFuture<'f, Result<Vec<syrup::Item>, DeliverError>> {
+        to_desc: DescExport,
+        args: Sequence<'f>,
+    ) -> futures::future::BoxFuture<'f, Result<Sequence<'static>, DeliverError<'static>>> {
         let (resolver, answer) = Resolver::new();
-        let pos = self.exports.export(resolver);
+        let pos = self.exports.export_object(resolver);
         async move {
-            self.deliver(position, args, None, DescImport::Object(pos.into()))
+            self.deliver(&OpDeliver::new(to_desc, args, None, pos.into()))
                 .await?;
             answer.await?.map_err(DeliverError::Broken)
         }
@@ -141,7 +137,7 @@ where
 
 impl<Reader, Writer> AbstractCapTpSession for CapTpSessionInternal<Reader, Writer>
 where
-    Reader: AsyncRead + Send + Unpin + 'static,
+    Reader: CapTpReadExt + Send + 'static,
     Writer: AsyncWrite + Send + Unpin + 'static,
 {
     fn signing_key(&self) -> &SigningKey {
@@ -170,9 +166,9 @@ where
         self.is_aborted()
     }
 
-    fn abort<'f>(&'f self, reason: &'f OpAbort) -> BoxFuture<'f, Result<(), SendError>> {
+    fn abort<'f>(&'f self, reason: &'f OpAbort<'f>) -> BoxFuture<'f, Result<(), SendError>> {
         async move {
-            let res = self.send_msg(reason).await;
+            let res = self.send_msg(&reason.to_tokens()).await;
             self.local_abort();
             res
         }

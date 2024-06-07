@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 
-use super::{CapTpSession, CapTpSessionBuilder, CapTpSessionCore, CapTpSessionInternal};
+use super::{CapTpSession, CapTpSessionBuilder, CapTpSessionInternal};
 use crate::locator::NodeLocator;
 
 #[derive(Clone, Default)]
@@ -42,14 +42,16 @@ impl<Reader, Writer> CapTpSessionManager<Reader, Writer> {
 
     pub(super) fn finalize_session(
         &mut self,
-        core: CapTpSessionCore<Reader, Writer>,
+        reader: Reader,
+        writer: Writer,
         signing_key: SigningKey,
         remote_vkey: VerifyingKey,
-        remote_loc: NodeLocator,
+        remote_loc: NodeLocator<'static>,
     ) -> CapTpSession<Reader, Writer> {
-        let designator = remote_loc.designator.clone();
+        let designator = remote_loc.designator.clone().into_owned();
         let internal = Arc::new(CapTpSessionInternal::new(
-            core,
+            reader.into(),
+            writer.into(),
             signing_key,
             remote_vkey,
             remote_loc,

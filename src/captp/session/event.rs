@@ -1,3 +1,5 @@
+use syrup::Sequence;
+
 use super::{FetchResolver, GenericResolver};
 use crate::captp::msg::DescExport;
 
@@ -22,19 +24,19 @@ impl std::fmt::Debug for BootstrapEvent {
 }
 
 #[derive(Debug, Clone)]
-pub enum Delivery {
+pub enum Delivery<'args> {
     DeliverOnly {
         to_desc: DescExport,
-        args: Vec<syrup::Item>,
+        args: Sequence<'args>,
     },
     Deliver {
         to_desc: DescExport,
-        args: Vec<syrup::Item>,
+        args: Sequence<'args>,
         resolver: GenericResolver,
     },
 }
 
-impl Delivery {
+impl<'args> Delivery<'args> {
     pub fn position(&self) -> u64 {
         match self {
             Delivery::DeliverOnly { to_desc, .. } | Delivery::Deliver { to_desc, .. } => {

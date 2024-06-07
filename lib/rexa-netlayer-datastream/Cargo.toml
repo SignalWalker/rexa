@@ -1,0 +1,28 @@
+[package]
+name = "rexa-netlayer-datastream"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+rexa = { path = "../..", version = "^0.1", features = ["tokio"] }
+syrup.workspace = true
+
+thiserror.workspace = true
+tracing.workspace = true
+
+futures.workspace = true
+tokio = { version = "^1.38", features = ["parking_lot"] }
+
+# tcp
+mio = { version = "^0.8", optional = true }
+
+[features]
+default = ["tcp", "unix"]
+tcp = ["tokio/net"]
+unix = []
+
+[lints]
+workspace = true

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 #[derive(Default, Debug)]
 pub struct SwissRegistry {
-    map: dashmap::DashMap<Vec<u8>, DeliverySender>,
+    map: dashmap::DashMap<Vec<u8>, DeliverySender<'static>>,
 }
 
 impl SwissRegistry {
@@ -11,18 +11,22 @@ impl SwissRegistry {
         Arc::default()
     }
 
-    pub fn insert(&self, key: Vec<u8>, value: DeliverySender) -> Option<DeliverySender> {
+    pub fn insert(
+        &self,
+        key: Vec<u8>,
+        value: DeliverySender<'static>,
+    ) -> Option<DeliverySender<'static>> {
         self.map.insert(key, value)
     }
 
     pub fn get<'s>(
         &'s self,
         swiss: &[u8],
-    ) -> Option<dashmap::mapref::one::Ref<'s, Vec<u8>, DeliverySender>> {
+    ) -> Option<dashmap::mapref::one::Ref<'s, Vec<u8>, DeliverySender<'static>>> {
         self.map.get(swiss)
     }
 
-    pub fn remove(&self, swiss: &[u8]) -> Option<DeliverySender> {
+    pub fn remove(&self, swiss: &[u8]) -> Option<DeliverySender<'static>> {
         self.map.remove(swiss).map(|(_, v)| v)
     }
 }

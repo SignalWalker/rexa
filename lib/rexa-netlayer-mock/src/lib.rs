@@ -1,23 +1,31 @@
-use parking_lot::RwLock;
-use rexa::{
-    async_compat::{mpsc, oneshot, Mutex as AsyncMutex, RwLock as AsyncRwLock},
-    captp::CapTpSessionManager,
-    locator::NodeLocator,
-    netlayer::Netlayer,
-};
 use std::{
+    borrow::Cow,
     collections::HashMap,
     future::Future,
     sync::{Arc, Weak},
 };
-use tokio::io::DuplexStream;
+
+use parking_lot::RwLock;
+use rexa::{
+    captp::{CapTpSessionManager, SessionInitError},
+    locator::NodeLocator,
+    netlayer::Netlayer,
+};
+
+use tokio::{
+    io::{BufReader, DuplexStream},
+    sync::{mpsc, oneshot, Mutex as AsyncMutex, RwLock as AsyncRwLock},
+};
 
 type MockReader = <MockNetlayer as Netlayer>::Reader;
 type MockWriter = <MockNetlayer as Netlayer>::Writer;
 type StreamSend = oneshot::Sender<(MockReader, MockWriter)>;
 
+type MockRegistry =
+    RwLock<HashMap<String, (Weak<MockNetlayer>, mpsc::UnboundedSender<StreamSend>)>>;
+
 lazy_static::lazy_static! {
-    static ref MOCK_REGISTRY: RwLock<HashMap<String, (Weak<MockNetlayer>, mpsc::UnboundedSender<StreamSend>)>> = RwLock::default();
+    static ref MOCK_REGISTRY: MockRegistry = RwLock::default();
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -26,6 +34,8 @@ pub enum Error {
     NameInUse,
     #[error("address not found")]
     NotFound,
+    #[error("address found in registry, but the receiver has been dropped")]
+    ReceiverDropped,
     #[error("MockNetlayer registry poisoned")]
     RegistryPoisoned,
     #[error("pipe broken during accept")]
@@ -33,7 +43,7 @@ pub enum Error {
     #[error(transparent)]
     Connect(#[from] oneshot::error::RecvError),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Init(#[from] SessionInitError),
 }
 
 impl<Guard> From<std::sync::PoisonError<Guard>> for Error {
@@ -71,13 +81,13 @@ impl MockNetlayer {
 }
 
 impl Netlayer for MockNetlayer {
-    type Reader = DuplexStream;
+    type Reader = BufReader<DuplexStream>;
     type Writer = DuplexStream;
     type Error = Error;
 
-    fn connect(
+    fn connect<'locator>(
         &self,
-        locator: &rexa::locator::NodeLocator,
+        locator: &rexa::locator::NodeLocator<'locator>,
     ) -> impl Future<
         Output = Result<rexa::captp::CapTpSession<Self::Reader, Self::Writer>, Self::Error>,
     > + Send {
@@ -90,23 +100,23 @@ impl Netlayer for MockNetlayer {
             let (stream_send, stream_recv) = oneshot::channel();
             if MOCK_REGISTRY
                 .read()
-                .get(&locator.designator)
+                .get(&*locator.designator)
                 .ok_or(Error::NotFound)?
                 .1
                 .send(stream_send)
                 .is_err()
             {
-                // send failed, clean registry
-                MOCK_REGISTRY.write().remove(&locator.designator);
+                // send failed, therefore receiver has been dropped; clean registry
+                MOCK_REGISTRY.write().remove(&*locator.designator);
                 return Err(Error::NotFound);
             }
 
-            let (reader, writer) = stream_recv.await.map_err(Error::from)?;
+            let (reader, writer) = stream_recv.await?;
             self.manager
                 .write()
                 .await
                 .init_session(reader, writer)
-                .and_connect(self.locators().pop().unwrap())
+                .and_connect(NodeLocator::new(&self.name, "mock"))
                 .await
                 .map_err(From::from)
         }
@@ -121,20 +131,23 @@ impl Netlayer for MockNetlayer {
             let (local_reader, remote_writer) = tokio::io::duplex(1024);
             let (remote_reader, local_writer) = tokio::io::duplex(1024);
             stream_send
-                .send((remote_reader, remote_writer))
-                .map_err(|_| Error::Accept)?;
+                .send((BufReader::new(remote_reader), remote_writer))
+                .map_err(|_err| Error::Accept)?;
             (local_reader, local_writer)
         };
         self.manager
             .write()
             .await
-            .init_session(reader, writer)
-            .and_connect(self.locators().pop().unwrap())
+            .init_session(BufReader::new(reader), writer)
+            .and_connect(NodeLocator::new(&self.name, "mock"))
             .await
             .map_err(From::from)
     }
 
-    fn locators(&self) -> Vec<rexa::locator::NodeLocator> {
-        vec![NodeLocator::new(self.name.clone(), "mock".to_owned())]
+    fn locators(&self) -> Vec<rexa::locator::NodeLocator<'_>> {
+        vec![NodeLocator::new(
+            Cow::Borrowed(self.name.as_str()),
+            Cow::Borrowed("mock"),
+        )]
     }
 }

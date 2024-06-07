@@ -9,9 +9,9 @@ pub trait Netlayer {
     type Error;
 
     /// Attempt to open a new connection to the specified locator.
-    fn connect(
+    fn connect<'locator>(
         &self,
-        locator: &NodeLocator,
+        locator: &NodeLocator<'locator>,
     ) -> impl Future<Output = Result<CapTpSession<Self::Reader, Self::Writer>, Self::Error>> + Send
     where
         Self: Sized;
@@ -24,7 +24,7 @@ pub trait Netlayer {
         Self: Sized;
 
     /// Get locators pointing to this node.
-    fn locators(&self) -> Vec<NodeLocator>;
+    fn locators(&self) -> Vec<NodeLocator<'_>>;
 
     /// Get a [Stream](futures::stream::Stream) of accepted connections.
     fn stream(

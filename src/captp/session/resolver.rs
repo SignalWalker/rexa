@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use syrup::{RawSyrup, Serialize};
+use syrup::{literal, sequence, symbol, Encode, Sequence, TokenTree};
 
 use super::CapTpDeliver;
 use crate::captp::{
-    msg::{DescExport, DescImport, DescImportObject},
-    object::{DeliverError, DeliverOnlyError},
+    msg::{DescExport, DescImport, DescImportObject, OpDeliver, OpDeliverOnly},
+    object::DeliverError,
+    SendError,
 };
 
 #[must_use]
@@ -60,61 +61,57 @@ impl GenericResolver {
         }
     }
 
-    pub async fn fulfill<'arg, Arg: Serialize + ?Sized + 'arg>(
+    pub async fn fulfill<'args>(
         mut self,
-        args: impl IntoIterator<Item = &'arg Arg>,
+        mut args: Sequence<'args>,
         answer_pos: Option<u64>,
         resolve_me_desc: DescImport,
-    ) -> Result<(), DeliverError> {
+    ) -> Result<(), SendError> {
         #[cfg(feature = "extra-diagnostics")]
         {
             self.resolved = true;
         }
+
+        args.stream.insert(0, literal![Symbol; b"fulfill"]);
+
         self.session
-            .deliver(
+            .deliver(&OpDeliver::new(
                 self.position(),
-                &RawSyrup::vec_from_ident_iter("fulfill", args.into_iter())?,
+                args,
                 answer_pos,
                 resolve_me_desc,
-            )
+            ))
             .await
-            .map_err(From::from)
     }
 
-    pub async fn fulfill_and<'arg, Arg: Serialize + ?Sized + 'arg>(
+    pub async fn fulfill_and<'args>(
         mut self,
-        args: impl IntoIterator<Item = &'arg Arg>,
-    ) -> Result<Vec<syrup::Item>, DeliverError> {
+        mut args: Sequence<'args>,
+    ) -> Result<Sequence<'static>, DeliverError<'static>> {
+        #[cfg(feature = "extra-diagnostics")]
+        {
+            self.resolved = true;
+        }
+
+        args.stream.insert(0, literal![Symbol; b"fulfill"]);
+
+        self.session.deliver_and(self.position(), args).await
+    }
+
+    pub async fn break_promise<'error>(
+        mut self,
+        error: TokenTree<'error>,
+    ) -> Result<(), SendError> {
         #[cfg(feature = "extra-diagnostics")]
         {
             self.resolved = true;
         }
         self.session
-            .deliver_and(
+            .deliver_only(&OpDeliverOnly::new(
                 self.position(),
-                &RawSyrup::vec_from_ident_iter("fulfill", args.into_iter())?,
-            )
+                sequence![symbol!["break"], error],
+            ))
             .await
-    }
-
-    pub async fn break_promise<'f>(
-        mut self,
-        error: &(impl Serialize + ?Sized),
-    ) -> Result<(), DeliverOnlyError> {
-        #[cfg(feature = "extra-diagnostics")]
-        {
-            self.resolved = true;
-        }
-        self.session
-            .deliver_only(
-                self.position(),
-                &[
-                    RawSyrup::try_from_serialize("break")?,
-                    RawSyrup::try_from_serialize(error)?,
-                ],
-            )
-            .await
-            .map_err(From::from)
     }
 }
 
@@ -145,20 +142,20 @@ impl FetchResolver {
         position: DescExport,
         answer_pos: Option<u64>,
         resolve_me_desc: DescImport,
-    ) -> Result<(), DeliverError> {
+    ) -> Result<(), SendError> {
         self.base
-            .fulfill([&position], answer_pos, resolve_me_desc)
+            .fulfill(sequence![position], answer_pos, resolve_me_desc)
             .await
     }
 
-    pub async fn fulfill_and(self, position: DescExport) -> Result<Vec<syrup::Item>, DeliverError> {
-        self.base.fulfill_and(&[position]).await
+    pub async fn fulfill_and(
+        self,
+        position: DescExport,
+    ) -> Result<Sequence<'static>, DeliverError<'static>> {
+        self.base.fulfill_and(sequence![position]).await
     }
 
-    pub async fn break_promise(
-        self,
-        error: &(impl Serialize + ?Sized),
-    ) -> Result<(), DeliverOnlyError> {
+    pub async fn break_promise<'error>(self, error: TokenTree<'error>) -> Result<(), SendError> {
         self.base.break_promise(error).await
     }
 }

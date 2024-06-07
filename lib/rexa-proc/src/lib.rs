@@ -162,7 +162,7 @@ impl Parse for Metadata {
             session_t: parse_quote!(::std::sync::Arc<dyn #rexa::captp::AbstractCapTpSession + ::std::marker::Send + ::std::marker::Sync>),
             deliver_only_result_t: parse_quote!(::std::result::Result<(), #error_t>),
             deliver_result_t: parse_quote!(::std::result::Result<(), #error_t>),
-            args_t: parse_quote!(::std::vec::Vec<#item_t>),
+            args_t: parse_quote!(#syrup::de::Sequence<'args>),
             resolver_t: parse_quote!(#rexa::captp::GenericResolver),
             item_t,
             error_t,
@@ -367,98 +367,110 @@ pub fn impl_object(
         let mut args_pos = 1;
     };
 
-    let deliver_only: ImplItemFn = if let Some(verbatim) = deliver_only_verbatim {
-        parse_quote! {
-            #deliver_only_sig {
-                #verbatim
-            }
-        }
-    } else if deliver_only_fns.is_empty() {
-        if let Some(tracing) = tracing {
-            parse_quote! {
-                #deliver_only_sig {
-                    #tracing::warn!(session_key_hash = #rexa::hash(session.remote_vkey()), ?args, "unexpected deliver_only");
-                    Ok(())
-                }
-            }
-        } else {
-            parse_quote! {
-                #deliver_only_sig {
-                    Ok(())
-                }
-            }
-        }
-    } else {
-        let mut deliver_only_arms = deliver_only_fns
-            .into_iter()
-            .map(|(symbol, del)| {
-                parse_quote_spanned! {del.span()=> #symbol => #del }
-            })
-            .collect::<Vec<Arm>>();
-        deliver_only_arms.push(match deliver_only_fallback {
-            Some(fallback) => parse_quote_spanned! {fallback.span()=> id => #fallback},
-            _ => parse_quote! { id => todo!("unrecognized deliver_only function: {id}") },
-        });
-        parse_quote! {
-            #deliver_only_sig {
-                #(#get_id)*
-                match __id.as_str() {
-                    #(#deliver_only_arms),*
-                }
-            }
+    //let deliver_only: ImplItemFn = if let Some(verbatim) = deliver_only_verbatim {
+    //    parse_quote! {
+    //        #deliver_only_sig {
+    //            #verbatim
+    //        }
+    //    }
+    //} else if deliver_only_fns.is_empty() {
+    //    if let Some(tracing) = tracing {
+    //        parse_quote! {
+    //            #deliver_only_sig {
+    //                #tracing::warn!(session_key_hash = #rexa::hash(session.remote_vkey()), ?args, "unexpected deliver_only");
+    //                Ok(())
+    //            }
+    //        }
+    //    } else {
+    //        parse_quote! {
+    //            #deliver_only_sig {
+    //                Ok(())
+    //            }
+    //        }
+    //    }
+    //} else {
+    //    let mut deliver_only_arms = deliver_only_fns
+    //        .into_iter()
+    //        .map(|(symbol, del)| {
+    //            parse_quote_spanned! {del.span()=> #symbol => #del }
+    //        })
+    //        .collect::<Vec<Arm>>();
+    //    deliver_only_arms.push(match deliver_only_fallback {
+    //        Some(fallback) => parse_quote_spanned! {fallback.span()=> id => #fallback},
+    //        _ => parse_quote! { id => todo!("unrecognized deliver_only function: {id}") },
+    //    });
+    //    parse_quote! {
+    //        #deliver_only_sig {
+    //            #(#get_id)*
+    //            match __id.as_str() {
+    //                #(#deliver_only_arms),*
+    //            }
+    //        }
+    //    }
+    //};
+
+    //let deliver: ImplItemFn = if let Some(verbatim) = deliver_verbatim {
+    //    parse_quote! {
+    //        #deliver_sig {
+    //            #verbatim
+    //        }
+    //    }
+    //} else if deliver_fns.is_empty() {
+    //    let result: Expr = parse_quote! {
+    //        #futures::FutureExt::boxed(async move {
+    //            resolver.break_promise(&::std::format!("unrecognized delivery: {args:?}")).await.map_err(#from_fn)
+    //        })
+    //    };
+    //    if let Some(tracing) = tracing {
+    //        parse_quote! {
+    //            #deliver_sig {
+    //                #tracing::warn!(session_key_hash = #rexa::hash(session.remote_vkey()), ?args, "unexpected deliver");
+    //                #result
+    //            }
+    //        }
+    //    } else {
+    //        parse_quote! {
+    //            #deliver_sig {
+    //                #result
+    //            }
+    //        }
+    //    }
+    //} else {
+    //    let mut deliver_arms = deliver_fns
+    //        .into_iter()
+    //        .map(|(symbol, del)| {
+    //            parse_quote_spanned! {del.span()=> #symbol => #del }
+    //        })
+    //        .collect::<Vec<Arm>>();
+    //
+    //    deliver_arms.push(match deliver_fallback {
+    //        Some(fallback) => parse_quote_spanned! {fallback.span()=> id => #fallback},
+    //        _ => parse_quote! { id => resolver.break_promise(&::std::format!("unrecognized function: {id}")).await.map_err(#from_fn) },
+    //    });
+    //    parse_quote! {
+    //        #deliver_sig {
+    //            use #futures::FutureExt;
+    //            async move {
+    //                #(#get_id)*
+    //                // `let ...` so that we get more helpful errors
+    //                let __res: #deliver_result_t = match __id.as_str() {
+    //                    #(#deliver_arms),*
+    //                };
+    //                __res
+    //            }.boxed()
+    //        }
+    //    }
+    //};
+
+    let deliver_only: ImplItemFn = parse_quote! {
+        #deliver_only_sig {
+            ::std::todo!()
         }
     };
 
-    let deliver: ImplItemFn = if let Some(verbatim) = deliver_verbatim {
-        parse_quote! {
-            #deliver_sig {
-                #verbatim
-            }
-        }
-    } else if deliver_fns.is_empty() {
-        let result: Expr = parse_quote! {
-            #futures::FutureExt::boxed(async move {
-                resolver.break_promise(&::std::format!("unrecognized delivery: {args:?}")).await.map_err(#from_fn)
-            })
-        };
-        if let Some(tracing) = tracing {
-            parse_quote! {
-                #deliver_sig {
-                    #tracing::warn!(session_key_hash = #rexa::hash(session.remote_vkey()), ?args, "unexpected deliver");
-                    #result
-                }
-            }
-        } else {
-            parse_quote! {
-                #deliver_sig {
-                    #result
-                }
-            }
-        }
-    } else {
-        let mut deliver_arms = deliver_fns
-            .into_iter()
-            .map(|(symbol, del)| {
-                parse_quote_spanned! {del.span()=> #symbol => #del }
-            })
-            .collect::<Vec<Arm>>();
-
-        deliver_arms.push(match deliver_fallback {
-            Some(fallback) => parse_quote_spanned! {fallback.span()=> id => #fallback},
-            _ => parse_quote! { id => resolver.break_promise(&::std::format!("unrecognized function: {id}")).await.map_err(#from_fn) },
-        });
-        parse_quote! {
-            #deliver_sig {
-                use #futures::FutureExt;
-                async move {
-                    #(#get_id)*
-                    // `let ...` so that we get more helpful errors
-                    let __res: #deliver_result_t = match __id.as_str() {
-                        #(#deliver_arms),*
-                    };
-                    __res
-                }.boxed()
-            }
+    let deliver: ImplItemFn = parse_quote! {
+        #deliver_sig {
+            ::std::todo!()
         }
     };
 

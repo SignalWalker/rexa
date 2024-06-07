@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::{AsyncDataStream, AsyncStreamListener};
 use rexa::locator::NodeLocator;
 
@@ -31,14 +33,17 @@ impl AsyncStreamListener for tokio::net::UnixListener {
         tokio::net::UnixListener::local_addr(self)
     }
 
-    fn locator(&self) -> Result<NodeLocator, Self::Error> {
+    fn locator(&self) -> Result<NodeLocator<'_>, Self::Error> {
         // FIX :: tokio unix socketaddr does not suport as_abstract_namespace
         match self
             .local_addr()?
             .as_pathname()
             .and_then(std::path::Path::to_str)
         {
-            Some(p) => Ok(NodeLocator::new(p.to_owned(), Self::TRANSPORT.to_owned())),
+            Some(p) => Ok(NodeLocator::new(
+                Cow::Owned(p.to_owned()),
+                Cow::Borrowed(Self::TRANSPORT),
+            )),
             None => todo!("handle unnamed unix streams"),
         }
     }
@@ -50,10 +55,10 @@ impl AsyncDataStream for tokio::net::UnixStream {
     type WriteHalf = tokio::net::unix::OwnedWriteHalf;
     type Error = std::io::Error;
 
-    fn connect(
-        addr: &NodeLocator,
+    fn connect<'loc>(
+        addr: &NodeLocator<'loc>,
     ) -> impl std::future::Future<Output = Result<Self, Self::Error>> + std::marker::Send {
-        tokio::net::UnixStream::connect(&addr.designator)
+        tokio::net::UnixStream::connect(&*addr.designator)
     }
 
     fn split(self) -> (Self::ReadHalf, Self::WriteHalf) {

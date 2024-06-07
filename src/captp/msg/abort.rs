@@ -1,29 +1,24 @@
-use syrup::{Deserialize, Serialize};
+use std::borrow::Cow;
 
-#[derive(Clone, Serialize, Deserialize)]
-#[syrup(name = "op:abort")]
-pub struct OpAbort {
-    pub reason: String,
+use syrup::{Decode, Encode};
+
+#[derive(Clone, Encode, Decode)]
+#[syrup(label = "op:abort")]
+pub struct OpAbort<'reason> {
+    pub reason: Cow<'reason, str>,
 }
 
-impl std::fmt::Debug for OpAbort {
+impl<'r> std::fmt::Debug for OpAbort<'r> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&syrup::ser::to_pretty(self).unwrap())
+        self.to_tokens().fmt(f)
     }
 }
 
-impl From<String> for OpAbort {
+impl<'r, S: Into<Cow<'r, str>>> From<S> for OpAbort<'r> {
     #[inline]
-    fn from(reason: String) -> Self {
-        Self { reason }
-    }
-}
-
-impl From<&str> for OpAbort {
-    #[inline]
-    fn from(value: &str) -> Self {
+    fn from(reason: S) -> Self {
         Self {
-            reason: value.into(),
+            reason: reason.into(),
         }
     }
 }

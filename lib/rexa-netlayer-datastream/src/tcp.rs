@@ -1,7 +1,8 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{borrow::Cow, collections::HashMap, net::SocketAddr};
 
 use futures::FutureExt;
 use rexa::locator::NodeLocator;
+use syrup::symbol;
 
 use super::{AsyncDataStream, AsyncStreamListener};
 
@@ -38,15 +39,12 @@ impl AsyncStreamListener for tokio::net::TcpListener {
         tokio::net::TcpListener::local_addr(self)
     }
 
-    fn locator(&self) -> Result<NodeLocator, Self::Error> {
+    fn locator(&self) -> Result<NodeLocator<'static>, Self::Error> {
         let addr = self.local_addr()?;
         Ok(NodeLocator {
-            designator: addr.ip().to_string(),
-            transport: Self::TRANSPORT.to_string(),
-            hints: HashMap::from_iter([(
-                syrup::Symbol("port".to_string()),
-                addr.port().to_string(),
-            )]),
+            designator: Cow::Owned(addr.ip().to_string()),
+            transport: Cow::Borrowed(Self::TRANSPORT),
+            hints: HashMap::from_iter([(symbol!["port"], Cow::Owned(addr.port().to_string()))]),
         })
     }
 }
@@ -66,10 +64,10 @@ impl AsyncDataStream for tokio::net::TcpStream {
     type WriteHalf = tokio::net::tcp::OwnedWriteHalf;
     type Error = TcpConnectError;
 
-    async fn connect(addr: &NodeLocator) -> Result<Self, Self::Error> {
+    async fn connect<'loc>(addr: &NodeLocator<'loc>) -> Result<Self, Self::Error> {
         tokio::net::TcpStream::connect((
-            addr.designator.as_str(),
-            addr.hint_as("port").ok_or(<Self::Error>::MissingPort)??,
+            &*addr.designator,
+            addr.hint_into("port").ok_or(<Self::Error>::MissingPort)??,
         ))
         .await
         .map_err(From::from)

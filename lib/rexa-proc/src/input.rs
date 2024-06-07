@@ -91,7 +91,7 @@ impl<'cx> DeliverInput<'cx> {
                     } else if meta.path.is_ident("resolver") {
                         res = Some(Self::resolver(meta.path.span()));
                         Ok(())
-                    } else if meta.path.is_ident("mapped") {
+                    } else if meta.path.is_ident("map") {
                         res = Some(Self::Mapped {
                             is_resolver: false,
                             map: meta.value()?.parse()?,
